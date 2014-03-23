@@ -1,0 +1,147 @@
+# Gems
+# ==================================================
+
+gem "bootstrap-sass"
+gem "bourbon"             # http://bourbon.io/
+gem "cancan"              # https://github.com/ryanb/cancan
+gem "devise"
+gem "haml-rails"          # http://haml.info
+gem "simple_form", git: "https://github.com/plataformatec/simple_form"
+
+gem_group :development do
+  gem "puma"
+  gem "rspec-rails"
+  gem "guard-rspec"       # https://github.com/guard/guard-rspec
+end
+
+gem_group :test do
+  gem "rspec-rails"
+  gem "capybara"          # https://github.com/jnicklas/capybara
+  gem "capybara-webkit"
+  gem "factory_girl_rails"
+  gem "database_cleaner"
+end
+
+gem_group :production do
+  # For Rails 4 deployment on Heroku
+  gem "rails_12factor"
+end
+
+mongodb = yes?("Use MongoDB?")
+
+if mongodb
+  gem 'mongoid', git: 'git://github.com/mongoid/mongoid.git'
+end
+
+run "bundle install"
+
+run "rbenv rehash" # Not sure if necessary
+
+# Initialize guard
+# ==================================================
+run "bundle exec guard init rspec"
+
+
+# Initialize CanCan
+# ==================================================
+run "rails g cancan:ability"
+
+
+# Initialize Mongoid
+# ==================================================
+run "rails g mongoid:config"
+
+
+# Initialize RSpec
+# ==================================================
+run "rails g rspec:install"
+if mongodb
+  gsub_file('spec/spec_helper.rb', /^.*check_pending.*$/, '')
+  gsub_file('spec/spec_helper.rb', /^.*fixture_path.*$/, '')
+  gsub_file('spec/spec_helper.rb', /^.*use_transactional_fixtures.*$/, '')
+  inject_into_file 'spec/spec_helper.rb', after: "rspec/autorun\n" do
+    "require 'database_cleaner"
+  end
+  inject_into_file 'spec/spec_helper.rb', after: "RSpec.configure do |config|\n" do
+"  config.mock_with :rspec
+
+  config.before(:suite) do
+    DatabaseCleaner[:mongoid].strategy = :truncation
+  end
+
+  config.before(:each) do
+    DatabaseCleaner[:mongoid].start
+  end
+
+  config.after(:each) do
+    DatabaseCleaner[:mongoid].clean
+  end
+"
+  end
+
+end
+
+# Initialize Devise
+# ==================================================
+run "rails generate devise:install"
+if yes?("Generate Devise model?")
+  model = ask("What model name?")
+  run "rails g devise #{model}"
+end
+
+
+# Clean up Assets
+# ==================================================
+run "mv app/assets/stylesheets/application.css app/assets/stylesheets/application.css.scss"
+
+# Remove the require_tree directives from the SASS and JavaScript files.
+run "sed -i '' /require_tree/d app/assets/javascripts/application.js"
+run "sed -i '' /require_tree/d app/assets/stylesheets/application.css.scss"
+
+# Add bourbon to stylesheet file
+run "echo >> app/assets/stylesheets/application.css.scss"
+run "echo '@import \"bourbon\";' >>  app/assets/stylesheets/application.css.scss"
+
+# Add bootstrap
+run "echo '@import \"bootstrap\";' >>  app/assets/stylesheets/application.css.scss"
+run "echo '//= require bootstrap' >>  app/assets/javascripts/application.js"
+
+
+# Ignore rails doc files, Vim/Emacs swap files, .DS_Store, and more
+# ===================================================
+run "cat << EOF >> .gitignore
+/.bundle
+/db/*.sqlite3
+/db/*.sqlite3-journal
+/log/*
+/tmp
+database.yml
+application.yml
+doc/
+*.swp
+*~
+.project
+.idea
+.secret
+.DS_Store
+EOF"
+
+
+# Git: Initialize
+# ==================================================
+git :init
+git add: "."
+git commit: %Q{ -m 'Initial commit' }
+
+if yes?("Initialize GitHub repository?")
+  git_uri = `git config remote.origin.url`.strip
+  unless git_uri.size == 0
+    say "Repository already exists:"
+    say "#{git_uri}"
+  else
+    username = ask "What is your GitHub username?"
+    run "curl -u #{username} -d '{\"name\":\"#{app_name}\"}' https://api.github.com/user/repos"
+    git remote: %Q{ add origin git@github.com:#{username}/#{app_name}.git }
+    git push: %Q{ origin master }
+  end
+end
